@@ -1,0 +1,44 @@
+%----------------------------------------------------------------------------------------
+%	NOTATION MACROS
+%	Single source of truth for notation; keep in sync with the symbol table in
+%	notes/discussion.md.
+%----------------------------------------------------------------------------------------
+
+% Name of the method (session 18: Hamiltonian flow control). Change it here only; the title in
+% main.tex and the pdftitle repeat it in full.
+\newcommand{\method}{HFC}
+\newcommand{\methodlong}{Hamiltonian flow control}
+
+% Drafting placeholder for content still to be supplied or confirmed.
+% Every occurrence must be resolved before submission.
+\newcommand{\TODO}[1]{\textcolor{red}{[\,#1\,]}}
+
+% Vectors are bold upright, as in the HFC derivations; scalars are italic.
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\bu}{\mathbf{u}}
+\newcommand{\bv}{\mathbf{v}}
+\newcommand{\bxref}{\mathbf{x}_{\mathrm{ref}}}
+
+% Number sets
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+
+% Transpose: A^\T
+\newcommand{\T}{\top}
+
+% Operators
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\tr}{tr}
+
+% Delimiters: \abs{x}, \norm{x}, \inner{x}{y}; starred forms auto-size
+\DeclarePairedDelimiter{\abs}{\lvert}{\rvert}
+\DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
+\DeclarePairedDelimiterX{\inner}[2]{\langle}{\rangle}{#1,#2}
+
+% Upright differential: \int f(x) \dd x
+\newcommand{\dd}{\mathop{}\!\mathrm{d}}
+
+% Bold Greek vectors (unicode-math: \symbf instead of \boldsymbol)
+\newcommand{\bxi}{\symbf{\xi}}
+\newcommand{\bdelta}{\symbf{\delta}}
+\newcommand{\blambda}{\symbf{\lambda}}

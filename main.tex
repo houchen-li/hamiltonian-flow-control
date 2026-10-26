@@ -1,59 +1,59 @@
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% University/School Laboratory Report
-% LaTeX Template
-% Version 3.1 (25/3/14)
+%----------------------------------------------------------------------------------------
+%	Hamiltonian Flow Control (HFC) -- journal manuscript
 %
-% This template has been downloaded from:
-% http://www.LaTeXTemplates.com
-%
-% Original author:
-% Linux and Unix Users Group at Virginia Tech Wiki
-% (https://vtluug.org/wiki/Example_LaTeX_chem_lab_report)
-%
-% License:
-% CC BY-NC-SA 3.0 (http://creativecommons.org/licenses/by-nc-sa/3.0/)
-%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%	Build:  latexmk main.tex   (XeLaTeX, see .latexmkrc; bibliography via biblatex + biber)
+%	Notes:  notes/discussion.md (decisions, notation, open questions)
+%	        notes/outline.md    (writing plan and progress)
+%----------------------------------------------------------------------------------------
 
 %----------------------------------------------------------------------------------------
 %	PACKAGES AND DOCUMENT CONFIGURATIONS
 %----------------------------------------------------------------------------------------
 
-\documentclass[11pt,a4paper,twoside,openright]{report}
+\documentclass[11pt,a4paper]{article}
 
-%\usepackage[utf8]{inputenc} % Redundant with XeLaTeX
-%\usepackage[T1]{fontenc} % Redundant with fontspec + XeLaTeX
-\usepackage{fontspec}
-\usepackage{xeCJK}
-\usepackage{unicode-math}
 \usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage{fontspec}
+\usepackage{xeCJK} % Only for Chinese drafting notes (\TODO); drop for submission
+\usepackage{unicode-math}
 \usepackage{geometry}
-\usepackage{setspace}
-\usepackage{nomencl}
+\usepackage{microtype}
 \usepackage{graphicx}
-\usepackage{fancyhdr}
 \usepackage{subcaption}
-\usepackage{wrapfig}
-%\usepackage{pdfpages} % Removed: coverpage no longer used
-\usepackage{multirow}
-\usepackage{hyperref}
-\usepackage{float}
-\usepackage{url}
 \usepackage{booktabs}
-\usepackage{braket}
-\usepackage{dcolumn}
-\usepackage[backend=biber]{biblatex}
-\usepackage{lipsum}
-%\usepackage{indentfirst}
-%\usepackage{siunitx} % Provides the \SI{}{} and \si{} command for typesetting SI units
-%\usepackage[version=3]{mhchem} % Package for chemical equation typesetting
+\usepackage{multirow}
+\usepackage{xcolor}
+% Citation style: numbered in order of first citation, as in Nonlinear Dynamics.
+% Cite with \citet (textual) and \citep (parenthetical): natbib=true provides them here, and
+% the natbib-based Springer Nature template understands them too, so the text never changes.
+\usepackage[
+    backend=biber,
+    style=numeric-comp,
+    sorting=none,
+    natbib=true,
+    maxbibnames=99,
+    giveninits=true,
+    url=false,
+    isbn=false,
+]{biblatex}
+\usepackage{hyperref}
+\usepackage[capitalise,nameinlink]{cleveref}
 
 %----------------------------------------------------------------------------------------
 %	FONT SETTINGS
 %----------------------------------------------------------------------------------------
 
+% The fonts/ submodule stores its files with Git LFS. If only the LFS pointer files are
+% checked out (git-lfs not installed), fall back to the identical New Computer Modern
+% fonts shipped with TeX Live and to Noto CJK (same design as Source Han).
+\IfFontExistsTF{fonts/NewCM10-Regular.otf}
+    {\newcommand*{\fontdir}{fonts/}}
+    {\newcommand*{\fontdir}{}}
+
 \setmainfont{NewComputerModern}[
-    Path=fonts/,
+    Path=\fontdir,
     Extension=.otf,
     UprightFont=NewCM10-Regular,
     BoldFont=NewCM10-Bold,
@@ -64,7 +64,7 @@
 ]
 
 \setsansfont{NewComputerModernSans}[
-    Path=fonts/,
+    Path=\fontdir,
     Extension=.otf,
     UprightFont=NewCMSans10-Regular,
     BoldFont=NewCMSans10-Bold,
@@ -74,135 +74,130 @@
     FontFace={l}{it}{Font=NewCMSans10-BookOblique.otf},
 ]
 
-\setmathfont{NewCMMath-Regular.otf}[Path=fonts/]
+\setmathfont{NewCMMath-Regular.otf}[Path=\fontdir]
 
-\setCJKmainfont{SourceHanSerifSC-Regular.otf}[
-    Path=fonts/,
-    BoldFont=SourceHanSerifSC-Bold.otf,
-    ItalicFont=ukai.ttc,
-    BoldItalicFont=ukai.ttc,
-    FontFace={l}{n}{Font=SourceHanSerifSC-Light.otf},
-]
-
-\setCJKsansfont{SourceHanSansSC-Regular.otf}[
-    Path=fonts/,
-    BoldFont=SourceHanSansSC-Bold.otf,
-    FontFace={l}{n}{Font=SourceHanSansSC-Light.otf},
-]
+\IfFontExistsTF{fonts/SourceHanSerifSC-Regular.otf}{
+    \setCJKmainfont{SourceHanSerifSC-Regular.otf}[
+        Path=fonts/,
+        BoldFont=SourceHanSerifSC-Bold.otf,
+        ItalicFont=ukai.ttc,
+        BoldItalicFont=ukai.ttc,
+        FontFace={l}{n}{Font=SourceHanSerifSC-Light.otf},
+    ]
+    \setCJKsansfont{SourceHanSansSC-Regular.otf}[
+        Path=fonts/,
+        BoldFont=SourceHanSansSC-Bold.otf,
+        FontFace={l}{n}{Font=SourceHanSansSC-Light.otf},
+    ]
+    \setCJKmonofont{SourceHanSansSC-Regular.otf}[Path=fonts/]
+}{
+    \setCJKmainfont{Noto Serif CJK SC}
+    \setCJKsansfont{Noto Sans CJK SC}
+    \setCJKmonofont{Noto Sans CJK SC}
+}
 
 %----------------------------------------------------------------------------------------
 %	DOCUMENT SETTINGS
 %----------------------------------------------------------------------------------------
 
-\geometry{a4paper,left=1.6in,right=1.2in,top=1.2in,bottom=1.2in}
+\geometry{a4paper,margin=2.5cm}
 
 \graphicspath{{figures/}}
-\includeonly{
-    data/00-titlepage,
-    data/00-abstract,
-    data/00-nomenclature,
-    data/01-chapter01,
-    data/02-chapter02,
-    data/03-chapter03,
-    data/04-chapter04,
-    data/05-acknowledge
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!50!black,
+    citecolor=blue!50!black,
+    urlcolor=blue!50!black,
+    pdftitle={Hamiltonian Flow Control},
+    pdfauthor={Houchen Li},
 }
 
-\onehalfspacing
-\setlength\parindent{4ex}
-\setlength{\headheight}{14pt}
+% Theorem-like environments, each numbered on its own (Theorem 1, Lemma 1, ...).
+% Defined after cleveref so that \cref picks up the environment names.
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{assumption}{Assumption}
+\newtheorem{problem}{Problem}
+\newtheorem{example}{Example}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
 
-\renewcommand{\labelenumi}{\alph{enumi}.}
+\crefname{assumption}{Assumption}{Assumptions}
+\crefname{problem}{Problem}{Problems}
 
-\makenomenclature
+\input{macros}
 
 \addbibresource{ref/refs.bib}
+
+% Allow looser lines in the bibliography rather than overfull boxes from long titles and DOIs.
+\appto{\bibsetup}{\emergencystretch=1em}
 
 %----------------------------------------------------------------------------------------
 %	DOCUMENT INFORMATION
 %----------------------------------------------------------------------------------------
 
+\title{Hamiltonian Flow Control:\\[0.5ex]
+    \large An Energy-Descent Control Law for Nonlinear Systems}
+\author{Houchen Li\\[0.5ex]
+    \normalsize\TODO{单位；通讯作者邮箱}}
+\date{}
+
 \begin{document}
 
-\pagenumbering{gobble}
-
-%----------------------------------------------------------------------------------------
-%	TITLEPAGE
-%----------------------------------------------------------------------------------------
-
-\include{data/00-titlepage}
-
-\cleardoublepage
+\maketitle
 
 %----------------------------------------------------------------------------------------
 %	ABSTRACT
 %----------------------------------------------------------------------------------------
 
-\include{data/00-abstract}\cleardoublepage
-
-\pagenumbering{Roman}\setcounter{page}{1}
+\input{data/00-abstract}
 
 %----------------------------------------------------------------------------------------
-%	HEADING AND FOOTING
+%	SECTION 1: INTRODUCTION
 %----------------------------------------------------------------------------------------
 
-\pagestyle{fancy}
-\fancyhf{}
-\fancyhead[LE]{\textsl{\rightmark}}
-\fancyhead[RO]{\textsl{\leftmark}}
-\fancyfoot[LE,RO]{\thepage}
+\input{data/01-introduction}
 
 %----------------------------------------------------------------------------------------
-%	TABLE OF CONTENTS
+%	SECTION 2: FORMULATION
 %----------------------------------------------------------------------------------------
 
-\tableofcontents\cleardoublepage
+\input{data/02-formulation}
 
 %----------------------------------------------------------------------------------------
-%	NOMENCLATURE
+%	SECTION 3: EXPERIMENTS
 %----------------------------------------------------------------------------------------
 
-\include{data/00-nomenclature}\printnomenclature\cleardoublepage
-
-\pagenumbering{arabic}\setcounter{page}{1}
+\input{data/03-experiments}
 
 %----------------------------------------------------------------------------------------
-%	SECTION 1
+%	SECTION 4: CONCLUSION
 %----------------------------------------------------------------------------------------
 
-\include{data/01-chapter01}
+\input{data/04-conclusion}
 
 %----------------------------------------------------------------------------------------
-%	SECTION 2
+%	ACKNOWLEDGEMENTS
 %----------------------------------------------------------------------------------------
 
-\include{data/02-chapter02}
+\input{data/05-acknowledge}
 
 %----------------------------------------------------------------------------------------
-%	SECTION 3
+%	DECLARATIONS
 %----------------------------------------------------------------------------------------
 
-\include{data/03-chapter03}
-
-%----------------------------------------------------------------------------------------
-%	SECTION 4
-%----------------------------------------------------------------------------------------
-
-\include{data/04-chapter04}
-
-%----------------------------------------------------------------------------------------
-%	ACKNOWLEDGE
-%----------------------------------------------------------------------------------------
-
-\include{data/05-acknowledge}
+\input{data/06-declarations}
 
 %----------------------------------------------------------------------------------------
 %	BIBLIOGRAPHY
 %----------------------------------------------------------------------------------------
 
 \printbibliography
-
-%----------------------------------------------------------------------------------------
-
 
 \end{document}

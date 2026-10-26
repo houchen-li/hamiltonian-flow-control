@@ -1,0 +1,721 @@
+\section{Formulation}\label{sec:formulation}
+
+% Plan and required inputs: notes/outline.md, Section 2. Since session 18 the look-ahead is the
+% Taylor polynomial of the flow, as in kinematics_flow_controller.hpp; the staged (symplectic
+% Euler) look-ahead of sessions 8-17 survives only in Remark rem:staged. Subsections 2.1, 2.9,
+% 2.10 and 2.12 still carry only their plan.
+
+\subsection{Geometric preliminaries}\label{sec:preliminaries}
+
+% Only what the general theory and the three examples need: smooth manifolds, tangent and
+% cotangent bundles, Lie derivatives along vector fields (Taylor look-ahead), the Lie groups SO(3)
+% and SE(3) with the hat/vee maps (Taylor look-ahead on SO(3), Magnus-type expansion).
+\TODO{流形、切丛与余切丛、李导数、李群 SO(3)/SE(3) 及 hat/vee 映射等预备知识，篇幅从简}
+
+\subsection{Problem setting}\label{sec:problem}
+
+We consider plants of the form
+\begin{equation}\label{eq:plant}
+    \dot\bx = \bv(\bx,\bu), \qquad \bx \in \R^n, \quad \bu \in \mathcal{U} \subseteq \R^m,
+\end{equation}
+with a smooth vector field $\bv$.
+\TODO{本节暂在局部坐标中表述；流形（含 SO(3)）上的内蕴表述待 2.1 节完成后统一}
+The state is partitioned into $L$ levels of increasing differential order,
+\begin{equation}\label{eq:levels}
+    \bx = (\bx_1,\dots,\bx_L), \qquad \bv = (\bv_1,\dots,\bv_L), \qquad \bx_\ell \in \R^{n_\ell},
+\end{equation}
+so that positions precede velocities, attitudes precede angular velocities, and so on; for $L = 2$
+we also write $(\mathbf{q},\mathbf{p}) = (\bx_1,\bx_2)$.
+The partition only orders the state components by the number of integrations that separate them
+from the input; in particular, $\mathbf{q}$ and $\mathbf{p}$ need not be canonically conjugate.
+
+The reference is given as a sequence of state samples $\bx_{r,0},\bx_{r,1},\dots$, as produced by a
+planner, without time stamps.
+The evolution times between consecutive samples are roughly stable, close to the update interval
+$h$ of the controller, but not exactly uniform, and neither values between the samples nor the
+input that generates them are assumed to be available.
+At round $k$ of the controller, at time $t_k$, the target is the $m$th next sample,
+\begin{equation}\label{eq:xref}
+    \bxref(t) = \bx_{r,k+m}, \qquad t\in[t_k,t_{k+1}),
+\end{equation}
+which the controller aims to reach after the preview time $\tau = mh$, the time in which the
+reference is expected to reach it; the integer $m \ge 2$ is a design parameter
+(\cref{rem:target}), and taking a sample at a fixed index offset avoids any projection of the state
+onto the reference.
+The tracking error at round $k$ is the deviation of the state from the sample due at that round,
+which is the target set $m$ rounds earlier,
+\begin{equation}\label{eq:error}
+    \mathbf{e}_k := \bx(t_k) - \bx_{r,k};
+\end{equation}
+we do not split it into along-track and cross-track components.
+For the analysis only, we regard the samples as taken from a trajectory $\bx_r(t)$ of the plant,
+$\dot\bx_r = \bv(\bx_r,\bu_r)$ for some input $\bu_r(t)$, with $\bx_{r,k} = \bx_r(t_k)$; the controller
+never uses $\bx_r$ or $\bu_r$.
+Set-point regulation is the special case of a constant reference.
+
+\subsection{The flow-based cost}\label{sec:cost}
+
+Given a look-ahead map $\Phi_\tau\colon \R^n\times\mathcal{U}\to\R^n$, which predicts the state reached
+after the preview time under the input $\bu$, \method{} penalizes the mismatch between the
+prediction and the target sample,
+\begin{equation}\label{eq:cost}
+    F(\bx,\bu,t) = \norm[\big]{\Gamma\bigl(\Phi_\tau(\bx,\bu) - \bxref(t)\bigr)}^2,
+\end{equation}
+where the invertible matrix $\Gamma$ renders every component dimensionless; we write
+$W := \Gamma^\T\Gamma$.
+With the mean velocity of the look-ahead, $\bv_\tau(\bx,\bu) := (\Phi_\tau(\bx,\bu) - \bx)/\tau$, the
+cost reads
+\begin{equation}\label{eq:cost-flow}
+    F = \tau^2\,\norm[\Big]{\Gamma\Bigl(\bv_\tau(\bx,\bu) - \frac{\bxref - \bx}{\tau}\Bigr)}^2 ,
+\end{equation}
+so it compares the flow of the plant over the preview time with the mean velocity that would carry
+the current state to the target sample in that time.
+This is the counterpart of the cost $(\lambda\bv - \tilde{\bv})^2$ of \citet{lan2004variational}: in
+the discretized form of their method, the image of a loop point under the flow over one time step is
+compared with the next loop point, the loop tangent $\tilde{\bv}$ being the secant to that point; here
+the look-ahead of the plant state is compared with the target sample, and the preview time plays the
+role of the time-scaling factor $\lambda$.
+We use the forward Euler look-ahead
+\begin{equation}\label{eq:fe}
+    \Phi_\tau^{\mathrm{FE}}(\bx,\bu) = \bx + \tau\bv(\bx,\bu)
+\end{equation}
+as a point of comparison below.
+In practice $\Gamma$ is diagonal, $\Gamma = \diag(\sqrt{w_1},\dots,\sqrt{w_n})\,\bar\Gamma$, where
+$\bar\Gamma$ divides each component by a characteristic scale built from the plant parameters and
+$\tau$, and the weights $w_i \ge 0$ are pure numbers.
+
+\subsection{Taylor look-ahead}\label{sec:lookahead}
+
+With the forward Euler look-ahead, an input that drives only the higher levels cannot influence the
+predicted lower levels: if $\partial_{\bu}\bv_\ell = 0$, the $\ell$th block row of
+$\partial_{\bu}\Phi_\tau^{\mathrm{FE}}$ vanishes, and the error of level $\ell$ drops out of
+$\nabla_{\bu}F$.
+\method{} therefore predicts the lower levels through the time derivatives of the higher ones.
+For a fixed input $\bu$, let $\mathfrak{L}_{\bu}$ denote the Lie derivative along $\bv(\cdot,\bu)$, so
+that $\mathfrak{L}_{\bu}^j\bx$ is the $j$th time derivative of the state along the solutions of
+\eqref{eq:plant} with the input held at $\bu$; thus $\mathfrak{L}_{\bu}\bx = \bv(\bx,\bu)$ and
+$\mathfrak{L}_{\bu}^2\bx = \partial_{\bx}\bv(\bx,\bu)\,\bv(\bx,\bu)$.
+
+\begin{definition}[Taylor look-ahead]\label{def:taylor}
+The Taylor look-ahead of order $L$ is
+\begin{equation}\label{eq:taylor}
+    \hat\Phi_\tau(\bx,\bu) = \sum_{j=0}^{L}\frac{\tau^j}{j!}\,\mathbf{c}_j(\bx,\bu),
+\end{equation}
+where $\mathbf{c}_j = \mathfrak{L}_{\bu}^j\bx$ for $j \le 2$ and, for $j \ge 3$, $\mathbf{c}_j$ is the
+first-order expansion of $\mathfrak{L}_{\bu}^j\bx$ in $\bu$ at $\bu = \mathbf{0}$.
+\end{definition}
+
+Up to order two, \eqref{eq:taylor} is the Taylor polynomial of the flow of \eqref{eq:plant} over the
+preview time with the input held; from order three on, it keeps only the part of each term that is
+affine in the input.
+If the input drives only the highest level, $\partial_{\bu}\bv_\ell = 0$ for $\ell < L$, it first
+appears in the derivatives of level $\ell$ at order $L - \ell + 1$, so that $L$ is the lowest order at
+which it reaches every level.
+On an integrator chain, $\hat\Phi_\tau$ is the exact flow.
+If the plant is affine in the input, $\bv = \mathbf{f}(\bx) + \sum_i \mathbf{g}_i(\bx)u_i$, and the input
+vector fields do not depend on the components they drive, $\partial_{\bx}\mathbf{g}_i\,\mathbf{g}_j =
+\mathbf{0}$ for all $i$ and $j$, then $\mathbf{c}_1$ and $\mathbf{c}_2$ are affine in $\bu$ as well, so
+that $\hat\Phi_\tau$ is affine in $\bu$ and $F$ is a quadratic function of $\bu$.
+The three plants of this paper satisfy this condition; in the quadrotor, for instance, the thrust
+acts along the attitude, which no input drives directly.
+Expanding \eqref{eq:taylor} in $\tau$ gives
+\begin{equation}\label{eq:taylor-expansion}
+    \hat\Phi_\tau(\bx,\bu) = \bx + \tau\bv(\bx,\bu) + \tau^2\rho(\bx,\bu,\tau), \qquad
+    \rho(\bx,\bu,0) = \tfrac12\,\partial_{\bx}\bv(\bx,\bu)\,\bv(\bx,\bu),
+\end{equation}
+where $\rho$ is a polynomial in $\tau$; its second-order term is what lets the input reach the levels
+below the directly driven ones (\cref{prop:sg}).
+
+\begin{remark}[Staged look-ahead]\label{rem:staged}
+A cheaper look-ahead, which needs only the first derivatives of $\bv$, stages a single explicit step
+in the order of the symplectic Euler scheme~\citep{hairer2006geometric}: every level is advanced over
+the preview time with the already advanced higher levels,
+$\bx_\ell^+ = \bx_\ell + \tau\bv_\ell(\bx_1,\dots,\bx_\ell,\bx_{\ell+1}^+,\dots,\bx_L^+,\bu)$, from
+$\ell = L$ down to $\ell = 1$.
+It also lets the input reach every level, but it holds the advanced higher levels over the whole
+preview time.
+On an integrator chain it gives $x_\ell^+ = \sum_{j\ge\ell}\tau^{j-\ell}x_j + \tau^{L-\ell+1}u$, with
+all coefficients equal to one instead of $1/(j - \ell)!$, so that it overstates the reach of the input
+into level $\ell$ by the factor $(L - \ell + 1)!$, and its second-order bias leaves a steady offset
+(\cref{ex:offset}).
+We use the Taylor look-ahead throughout.
+\end{remark}
+
+\subsection{Control law and implementation}\label{sec:extended}
+
+The control input becomes a state of the controller and descends the cost:
+\begin{equation}\label{eq:hfc}
+    \dot\bx = \bv(\bx,\bu), \qquad \dot\bu = -D(\bx,\bu)\,\nabla_{\bu}F(\bx,\bu,t),
+\end{equation}
+where $F$ is built on $\hat\Phi_\tau$ and the dimension-balancing coefficients form the diagonal
+matrix
+\begin{equation}\label{eq:D}
+    D = \diag(d_1,\dots,d_m), \qquad
+    d_i = \Bigl(2\tau^3\,\norm[\big]{\bar\Gamma\,\partial_{u_i}\bv(\bx,\bu)}^2\Bigr)^{-1}.
+\end{equation}
+The coefficient $d_i$ is $1/\tau$ times the inverse curvature, with respect to $u_i$, of the
+unweighted forward Euler cost $\norm{\bar\Gamma(\bx + \tau\bv - \bxref)}^2$.
+It gives $\dot u_i$ the units of a rate of the input, and it scales the gradient so that a residual
+on which $u_i$ acts directly, weighted with $w = 1$, decays at the rate $1/\tau$: the infinitesimal
+counterpart of a full Newton step taken over the preview time.
+The preview time therefore sets the loop gain, and the weights are pure numbers.
+
+The controller runs in discrete time.
+At round $k$, it measures the state $\bx(t_k)$ and updates the input by a forward Euler step of
+\eqref{eq:hfc}, clamped into $\mathcal{U}$,
+\begin{equation}\label{eq:update}
+    \bu_{k+1} = \Pi_{\mathcal{U}}\Bigl(\bu_k - h\,D\bigl(\bx(t_k),\bu_k\bigr)\,
+        \nabla_{\bu}F\bigl(\bx(t_k),\bu_k,t_k\bigr)\Bigr),
+\end{equation}
+where $\Pi_{\mathcal{U}}$ clamps every component into its bounds.
+The plant moves under the input $\bu_k$, held over $[t_k,t_{k+1})$, and $\bu_{k+1}$ takes over at
+$t_{k+1}$, which leaves one round for the computation.
+We analyze this sampled-data loop below, and we simulate it with an accurate integration of the
+plant.
+The update may also be taken from a step of a higher-order scheme applied to \eqref{eq:hfc} from the
+measured state, the stage at $t_k + c\,h$ then looking ahead over $\tau - c\,h$; the forward Euler
+update is the cheapest, and it is the one we use in the experiments.
+\TODO{约束的连续时间表述（投影）}
+
+\subsection{Properties of the flow cost}\label{sec:properties}
+
+\TODO{F 的非负性与零点集}
+
+The flow cost has the structure of a control Hamiltonian, and it generalizes the SG method.
+Let $Q(\bx,t) = \frac12\norm{\Gamma(\bx - \bxref(t))}^2$, whose gradient
+$\nabla_{\bx}Q = W(\bx - \bxref)$ we denote by $\blambda$, and let
+$\omega(\bx,\bu,t) = \partial_t Q(\bx,t) + \nabla_{\bx}Q(\bx,t)^\T\bv(\bx,\bu)$ be the speed of $Q$
+along \eqref{eq:plant}, so that $\nabla_{\bu}\omega = (\partial_{\bu}\bv)^\T W(\bx - \bxref)$ is the
+direction of the SG law for the goal function $Q$.
+
+\begin{proposition}[Hamiltonian form and relation to the speed-gradient law]\label{prop:sg}
+Let $\Gamma$ be fixed, write $K(\bx,\bu) = \frac12\norm{\Gamma\bv(\bx,\bu)}^2$, and define the control
+Hamiltonian
+\begin{equation}\label{eq:hamiltonian}
+    \mathcal{H}(\bx,\bu,\blambda) = \blambda^\T\bv_\tau(\bx,\bu)
+    + \frac{\tau}{2}\,\norm[\big]{\Gamma\bv_\tau(\bx,\bu)}^2 .
+\end{equation}
+\begin{enumerate}
+    \item For every look-ahead, $F = 2Q + 2\tau\,\mathcal{H}(\bx,\bu,\nabla_{\bx}Q)$, and therefore
+    $\nabla_{\bu}F = 2\tau\,\nabla_{\bu}\mathcal{H}$.
+    \item For the forward Euler look-ahead \eqref{eq:fe}, $\mathcal{H} = \omega - \partial_t Q + \tau K$,
+    and therefore
+    \begin{equation}\label{eq:sg-fe}
+        \nabla_{\bu}F = 2\tau\,\nabla_{\bu}\omega + 2\tau^2\,\nabla_{\bu}K.
+    \end{equation}
+    \item For the Taylor look-ahead \eqref{eq:taylor},
+    \begin{equation}\label{eq:sg-taylor}
+        \nabla_{\bu}F = 2\tau\,\nabla_{\bu}\omega
+        + 2\tau^2\Bigl(\nabla_{\bu}K + \partial_{\bu}\rho(\bx,\bu,0)^\T W(\bx - \bxref)\Bigr)
+        + O(\tau^3)
+    \end{equation}
+    uniformly on compact sets.
+    Hence $\dot\bu = -2\tau D\bigl(\nabla_{\bu}\omega + O(\tau)\bigr)$: to first order in $\tau$,
+    the \method{} law \eqref{eq:hfc} is the differential SG law with the gain matrix $2\tau D$.
+    \item Let $W = \diag(W_1,\dots,W_L)$ be block diagonal, and let level $\ell$ satisfy
+    $\partial_{\bu}\bv_\ell = 0$. Then the error $\mathbf{e}_\ell = \bx_\ell - \bx_{\mathrm{ref},\ell}$
+    enters neither $\nabla_{\bu}\omega$ nor, for the forward Euler look-ahead, $\nabla_{\bu}F$.
+    For the Taylor look-ahead, it enters $\nabla_{\bu}F$, up to terms of order $\tau^3$, through
+    \begin{equation}\label{eq:sg-lower}
+        \tau^2\Bigl(\sum_{k=1}^{L}\partial_{\bx_k}\bv_\ell\,\partial_{\bu}\bv_k\Bigr)^{\!\T}
+        W_\ell\,\mathbf{e}_\ell .
+    \end{equation}
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(a) Since $\Phi_\tau - \bxref = (\bx - \bxref) + \tau\bv_\tau$, expanding the square in
+\eqref{eq:cost} gives
+$F = \norm{\Gamma(\bx - \bxref)}^2 + 2\tau(\bx - \bxref)^\T W\bv_\tau + \tau^2\norm{\Gamma\bv_\tau}^2
+= 2Q + 2\tau\,\mathcal{H}(\bx,\bu,\nabla_{\bx}Q)$, and $Q$ does not depend on $\bu$.
+
+(b) For the forward Euler look-ahead, $\bv_\tau = \bv$ and
+$(\bx - \bxref)^\T W\bv = \nabla_{\bx}Q^\T\bv = \omega - \partial_t Q$; neither $Q$ nor $\partial_t Q$
+depends on $\bu$, which gives \eqref{eq:sg-fe}.
+
+(c) With $\hat\Phi_\tau - \bxref = (\bx - \bxref) + \tau\bv + \tau^2\rho$,
+\[
+    \nabla_{\bu}F
+    = 2\bigl(\tau\,\partial_{\bu}\bv + \tau^2\partial_{\bu}\rho\bigr)^\T W
+      \bigl((\bx - \bxref) + \tau\bv + \tau^2\rho\bigr).
+\]
+The terms of order $\tau$ and $\tau^2$ are
+\[
+    2\tau(\partial_{\bu}\bv)^\T W(\bx - \bxref) = 2\tau\nabla_{\bu}\omega
+    \quad\text{and}\quad
+    2\tau^2\bigl((\partial_{\bu}\bv)^\T W\bv + (\partial_{\bu}\rho)^\T W(\bx - \bxref)\bigr),
+\]
+where $(\partial_{\bu}\bv)^\T W\bv = \nabla_{\bu}K$.
+The remaining terms carry at least the factor $\tau^3$.
+Since $\rho$ is a polynomial in $\tau$ whose coefficients are continuously differentiable in
+$(\bx,\bu)$, replacing $\partial_{\bu}\rho(\bx,\bu,\tau)$ by $\partial_{\bu}\rho(\bx,\bu,0)$ changes the
+$\tau^2$ term by $O(\tau^3)$.
+All bounds are uniform on compact sets, where the functions involved are continuous.
+Multiplying by $D$ gives the form of $\dot\bu$.
+
+(d) Since $W$ is block diagonal, $\nabla_{\bu}\omega = \sum_k (\partial_{\bu}\bv_k)^\T
+W_k\mathbf{e}_k$.
+If $\partial_{\bu}\bv_\ell = 0$, the term with $k = \ell$ vanishes, so $\mathbf{e}_\ell$ does not appear
+in $\nabla_{\bu}\omega$, nor, by \eqref{eq:sg-fe}, in $\nabla_{\bu}F$ for the forward Euler
+look-ahead.
+For the Taylor look-ahead, $\partial_{\bx_k}\bv_\ell$ does not depend on $\bu$, so that
+\eqref{eq:taylor-expansion} gives $\partial_{\bu}\rho_\ell(\bx,\bu,0) =
+\frac12\sum_k\partial_{\bx_k}\bv_\ell\,\partial_{\bu}\bv_k$, and the $\ell$th block of the
+$\tau^2$ term in \eqref{eq:sg-taylor} is \eqref{eq:sg-lower}.
+\end{proof}
+
+\begin{remark}[Hamiltonian and energy-like structure]\label{rem:hamiltonian}
+The function \eqref{eq:hamiltonian} has the form of the Hamiltonian of Pontryagin's
+principle~\citep{pontryagin1962mathematical}, a running cost plus a costate times the velocity: the
+gradient $\blambda = \nabla_{\bx}Q$ of the weighted state error plays the role of the costate, the
+mean velocity $\bv_\tau$ of the look-ahead that of the velocity, and $\frac{\tau}{2}\norm{\Gamma
+\bv_\tau}^2$, the kinetic energy of the mean velocity in the metric $W$, that of the running cost.
+Pontryagin's principle requires an optimal input to minimize the Hamiltonian along the solution of
+the adjoint equation.
+By \cref{prop:sg}(a), \method{} instead lets the input descend $\mathcal{H}$ continuously, with the
+gradient of $Q$ in place of the costate, so that $Q$ plays the role of a value function, and it needs
+neither an adjoint equation nor a boundary-value problem; hence the name of the method.
+Within a round the target is held, $\partial_t Q = 0$, and $F/2 = Q + \tau\mathcal{H}$ adds $\tau$
+times this Hamiltonian to the potential $Q$; for the forward Euler look-ahead, $F/2 = Q + \tau\omega +
+\tau^2 K$ is the sum of the potential, its rate along the flow, and a kinetic term.
+The input thus descends an energy-like function of the state and of its flow.
+The name does not refer to Hamiltonian mechanics: with the state frozen, $F$ decreases along
+\eqref{eq:hfc} at the rate $(\nabla_{\bu}F)^\T D\,\nabla_{\bu}F$, so that the closed loop is
+dissipative, and no symplectic structure is claimed.
+\end{remark}
+
+\begin{remark}\label{rem:sg-levels}
+If level $\ell$ is separated from the input by more than one level, the sum in \eqref{eq:sg-lower}
+vanishes and $\mathbf{e}_\ell$ enters $\nabla_{\bu}F$ at a higher order in $\tau$; on an integrator
+chain, the error of the level that lies $j$ levels below the input enters at order $\tau^{j+1}$
+(see the proof of \cref{prop:chain}).
+The non-dimensionalization by $\bar\Gamma$, which scales the components of different levels by
+different powers of $\tau$, makes these contributions comparable in size.
+\end{remark}
+
+\subsection{Convergence analysis}\label{sec:convergence}
+
+\TODO{一般非线性系统的收敛性主定理，研究方案见 notes/convergence.md}
+
+\paragraph{Integrator chains.}
+The integrator chain is the prototype of the level structure \eqref{eq:levels}; on it, the Taylor
+look-ahead is the exact flow, and the \method{} loop can be analyzed exactly.
+
+\begin{proposition}[\method{} on an integrator chain]\label{prop:chain}
+Consider the chain $\dot x_1 = x_2,\dots,\dot x_{L-1} = x_L$, $\dot x_L = u$ with scalar states and
+input, the Taylor look-ahead \eqref{eq:taylor}, the coefficient \eqref{eq:D}, and
+\[
+    \Gamma = \ell_0^{-1}\diag\bigl(\sqrt{w_1},\ \sqrt{w_2}\,\tau,\ \dots,\ \sqrt{w_L}\,\tau^{L-1}\bigr)
+\]
+with a characteristic length $\ell_0$ and weights $w_k > 0$.
+For set-point regulation, $\bx_r = 0$ and $u_r = 0$, the extended system \eqref{eq:hfc} is linear
+and its characteristic polynomial is $\tau^{-(L+1)}P(\tau s)$, where
+\begin{equation}\label{eq:chain-poly}
+    P(\sigma) = \sigma^{L+1} + \sum_{k=1}^{L}\frac{w_k}{(L - k + 1)!}\,\sigma^{k-1}e_{L-k+1}(\sigma),
+    \qquad e_n(\sigma) = \sum_{i=0}^{n}\frac{\sigma^i}{i!} .
+\end{equation}
+Consequently, the closed loop is exponentially stable if and only if $P$ is Hurwitz, a condition on
+the weights alone, and every closed-loop eigenvalue is $1/\tau$ times a root of $P$.
+\end{proposition}
+
+\begin{proof}
+Since the chain is linear, \eqref{eq:taylor} is its exact flow,
+$x_k^+ = \sum_{j=k}^{L}\tau^{j-k}x_j/(j-k)! + \tau^{L-k+1}u/(L-k+1)!$.
+In the scaled variables $z_j = \tau^{j-1}x_j$ and $\nu = \tau^L u$ this reads $\tau^{k-1}x_k^+ = Y_k$
+with $Y_k = \sum_{j\ge k} z_j/(j-k)! + \nu/(L-k+1)!$, so that $F = \ell_0^{-2}\sum_{k} w_k Y_k^2$.
+Here $\bar\Gamma\,\partial_u\bv = \tau^{L-1}/\ell_0$, so \eqref{eq:D} gives
+$d = \ell_0^2/(2\tau^{2L+1})$ and
+$\dot u = -d\,\partial_u F = -\tau^{-(L+1)}\sum_k w_k Y_k/(L-k+1)!$.
+In the time $\sigma = t/\tau$, with $(\cdot)' = \dd(\cdot)/\dd\sigma$, the chain becomes
+$z_j' = z_{j+1}$ for $j < L$ and $z_L' = \nu$, and the control equation becomes
+$\nu' = -\sum_k w_k Y_k/(L-k+1)!$.
+Since $z_j = z_1^{(j-1)}$ and $\nu = z_1^{(L)}$, the Laplace transform turns $Y_k$ into
+$s^{k-1}e_{L-k+1}(s)$ times the transform of $z_1$, and the characteristic polynomial of the
+resulting scalar equation for $z_1$ is $P$.
+The change of variables is invertible for $\tau > 0$, and the time scaling multiplies the
+eigenvalues by $1/\tau$.
+\end{proof}
+
+\begin{remark}[Weight design and update interval]\label{rem:chain}
+For $L = 1$, $P = \sigma^2 + w_1\sigma + w_1$ is Hurwitz for every $w_1 > 0$.
+For $L = 2$,
+$P(\sigma) = \sigma^3 + \bigl(\frac{w_1}{4} + w_2\bigr)\sigma^2 + \bigl(\frac{w_1}{2} + w_2\bigr)\sigma
++ \frac{w_1}{2}$, which by the Routh--Hurwitz criterion is Hurwitz if and only if
+$\bigl(\frac{w_1}{4} + w_2\bigr)\bigl(\frac{w_1}{2} + w_2\bigr) > \frac{w_1}{2}$.
+Equal weights are admissible up to $L = 4$, which covers the chain from the rotor torques to the
+position of a quadrotor, but not for $L = 5$, where $P$ with $w_k = 1$ has roots in the right
+half-plane; longer chains call for a deliberate choice of the weights.
+Since the closed-loop eigenvalues scale with $1/\tau$, the sampled-data loop \eqref{eq:update} is
+stable only for $h/\tau$ below a threshold set by the roots of $P$.
+For $L = 2$ with unit weights, it is stable if and only if $\tau > 1.526\,h$; a simulation that
+advances the plant by the same forward Euler step would show the threshold $\tau > 1.408\,h$ instead.
+Both are met by $\tau = mh$ with $m \ge 2$.
+\end{remark}
+
+\paragraph{Tracking error caused by the look-ahead.}
+Even when the plant is on the reference, the look-ahead generally misses the target sample.
+We call
+\begin{equation}\label{eq:defect}
+    \bdelta(t) := \bxref(t) - \hat\Phi_\tau\bigl(\bx_r(t),\bu_r(t)\bigr)
+\end{equation}
+the look-ahead defect: the amount by which the look-ahead misses the target when the plant is on the
+reference and applies the reference input.
+The defect is an object of the analysis only; the controller never evaluates it.
+
+\begin{lemma}[Look-ahead defect]\label{lem:defect}
+Let the reference stay in a compact set, let $\bx_r$ be three times and $\bu_r$ once continuously
+differentiable, with bounded derivatives. If the target sample is the reference state at the time
+$t + \theta$, $\bxref(t) = \bx_r(t+\theta)$ with $0 < \theta \le \bar\theta$, then, uniformly in $t$,
+\begin{equation}\label{eq:defect-expansion}
+    \bdelta(t) = (\theta - \tau)\,\dot\bx_r(t)
+    + \tfrac12\bigl(\theta^2 - \tau^2\bigr)\ddot\bx_r(t)
+    + \tfrac12\tau^2\,\partial_{\bu}\bv\bigl(\bx_r(t),\bu_r(t)\bigr)\,\dot\bu_r(t)
+    + O(\theta^3 + \tau^3).
+\end{equation}
+For $\theta = \tau$, the defect is of second order only through the rate of the reference input, which
+acts on the directly driven levels, and of third order otherwise.
+\end{lemma}
+
+\begin{proof}
+Taylor expansion gives
+$\bx_r(t+\theta) = \bx_r + \theta\dot\bx_r + \frac12\theta^2\ddot\bx_r + O(\theta^3)$, and
+\eqref{eq:taylor-expansion} gives
+$\hat\Phi_\tau(\bx_r,\bu_r) = \bx_r + \tau\bv + \frac12\tau^2\partial_{\bx}\bv\,\bv + O(\tau^3)$, with
+$\bv$ and its derivatives evaluated at $(\bx_r,\bu_r)$.
+Along the reference, $\dot\bx_r = \bv$ and $\ddot\bx_r = \partial_{\bx}\bv\,\bv + \partial_{\bu}\bv\,
+\dot\bu_r$; subtracting yields \eqref{eq:defect-expansion}.
+\end{proof}
+
+The first term of \eqref{eq:defect-expansion} is of first order: unless the preview time matches the
+time $\theta$ at which the reference reaches the target sample, the defect is dominated by a
+mismatch of timing, which the closed loop absorbs as a time delay (\cref{ex:offset}).
+With the next sample as target, $\theta$ is the sample interval, close to $h$, whereas the update
+\eqref{eq:update} requires $\tau > 1.526\,h$ for a double integrator (\cref{rem:chain}).
+
+A defect acts on the closed loop as a persistent disturbance, and so does the rate of the reference
+input, which the control state has to follow.
+
+\begin{theorem}[Ultimate bound on the tracking error]\label{thm:offset}
+Let $\bxref = \hat\Phi_\tau(\bx_r,\bu_r) + \bdelta$ be a target with defect $\bdelta$, let
+$\bxi = (\bx - \bx_r,\ \bu - \bu_r)$, and call nominal the error system obtained from \eqref{eq:hfc}
+with $\bdelta = 0$ and without the term $-\dot\bu_r$; $\bxi = 0$ is an equilibrium of the nominal
+system.
+Suppose that this equilibrium is uniformly exponentially stable on a ball $B_r$, with a Lyapunov
+function $V(t,\bxi)$ that satisfies $c_1\norm{\bxi}^2 \le V \le c_2\norm{\bxi}^2$,
+$\dot V \le -c_3\norm{\bxi}^2$ along the nominal system, and $\norm{\partial_{\bxi}V} \le
+c_4\norm{\bxi}$ on $B_r$. Let
+\begin{equation}\label{eq:gbar}
+    \bar g := \sup_{t,\ \bxi\in B_r}
+        \norm[\big]{2D\,(\partial_{\bu}\hat\Phi_\tau)^\T W\bdelta(t)}
+        + \sup_{t}\norm{\dot\bu_r(t)} .
+\end{equation}
+If $\bar g < \vartheta\,(c_3/c_4)\sqrt{c_1/c_2}\,r$ for some $\vartheta\in(0,1)$, then every solution of
+\eqref{eq:hfc} with $\norm{\bxi(t_0)} < \sqrt{c_1/c_2}\,r$ satisfies, after a finite time,
+\begin{equation}\label{eq:offset-bound}
+    \norm{\bxi(t)} \le \frac{c_4}{c_3}\sqrt{\frac{c_2}{c_1}}\;\frac{\bar g}{\vartheta}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Since $\nabla_{\bu}F = 2(\partial_{\bu}\hat\Phi_\tau)^\T W\bigl(\hat\Phi_\tau(\bx,\bu) -
+\hat\Phi_\tau(\bx_r,\bu_r) - \bdelta\bigr)$, the error dynamics are the nominal system plus the
+perturbation
+$\mathbf{g} = \bigl(\mathbf{0},\ 2D(\partial_{\bu}\hat\Phi_\tau)^\T W\bdelta - \dot\bu_r\bigr)$,
+whose norm is bounded by $\bar g$ on $B_r$.
+The claim is the ultimate-boundedness result for nonvanishing perturbations of exponentially stable
+systems~\citep[Sect.~9.2]{khalil2002nonlinear}.
+\end{proof}
+
+By \cref{lem:defect}, the look-ahead leaves a tracking error driven by a disturbance of order
+$\abs{\theta - \tau} + \tau^2\sup_t\norm{\dot\bu_r} + \tau^3$.
+The constants $c_1,\dots,c_4$ and the coefficients $D$ depend on $\tau$, however, and the order of the
+resulting offset depends on how they scale; for the integrator chain it can be computed exactly.
+\TODO{一般系统中偏差阶数的严格证明（在 σ = t/τ 归一化时间下处理常数），见 notes/convergence.md}
+
+\begin{example}[Delay of the double integrator]\label{ex:offset}
+Take $L = 2$ in \cref{prop:chain} and a reference with constant acceleration $u_r = a_r$, whose
+target sample at time $t$ is $\bx_r(t+\theta)$.
+Substituting $x_1(t) = x_{1,r}(t - d) + c$, $x_2(t) = x_{2,r}(t - d)$ and $u = a_r$ into the
+residuals of the cost shows that both vanish for all $t$ if and only if $d = \tau - \theta$ and
+$c = 0$, whatever the weights, because the look-ahead is exact for a constant acceleration.
+In steady state the plant therefore follows the reference with the time delay $\tau - \theta$ and
+without offset; for $\theta = \tau$ it tracks the reference exactly.
+The staged look-ahead of \cref{rem:staged} would leave the offset $-\frac12 a_r\tau^2$ instead.
+\end{example}
+
+\begin{remark}[Choice of the target sample]\label{rem:target}
+With the next sample as target, $m = 1$, the time to the target is $\theta \approx h$, whereas the
+update \eqref{eq:update} requires $\tau > 1.526\,h$ for a double integrator (\cref{rem:chain}); the
+error \eqref{eq:error} is then dominated by the delay $\tau - h$, about $(\tau - h)\abs{\dot\bx_r}$ in
+the units of the state.
+Taking the $m$th next sample with $\tau = mh$, $m \ge 2$, matches the preview time to the time to the
+target, so that the first-order term of \eqref{eq:defect-expansion} reduces to the deviation of the
+sum of the next $m$ sample intervals from $mh$, while the update interval remains admissible
+(\cref{rem:chain}).
+What remains are this jitter of the sample intervals, the rate of the reference input, and terms of
+third order.
+\end{remark}
+
+\subsection{Non-uniform sample intervals}\label{sec:nonuniform}
+
+In the setting of \cref{sec:problem}, the target sample becomes due $m$ rounds after it is set, so
+that $\tau = mh$ is the time the controller has to reach it, whatever the evolution times of the
+reference between the samples.
+If these times are markedly non-uniform, consuming one sample per round makes the samples
+inconsistent with the clock of the controller: to reach every sample on time, the plant would have
+to move faster or slower than the samples prescribe, and no choice of the preview time removes the
+resulting error \eqref{eq:error}.
+When the samples represent a trajectory $\bx_r(t)$ that is to be followed in time, their evolution
+times can instead be estimated from the samples themselves.
+If the rate of the lowest level does not depend on the input and stays away from zero, the time
+between two samples is, up to terms of third order in the interval,
+\begin{equation}\label{eq:interval}
+    \widehat{\Delta t}_k = \frac{2\,\norm{\bx_{1,r,k+1} - \bx_{1,r,k}}}
+        {\norm{\bv_1(\bx_{r,k})} + \norm{\bv_1(\bx_{r,k+1})}},
+\end{equation}
+the distance between the samples over their mean speed.
+Summing these estimates gives the times $\hat t_j$ of the samples; at round $k$, the target is then the
+first sample with $\hat t_j \ge t_k + mh$, the preview time is $\tau = \hat t_j - t_k$, and the
+tracking error is the deviation from $\bx_r(t_k)$.
+This selection needs neither time stamps nor a projection of the state onto the reference, and the
+coefficients \eqref{eq:D} follow the preview time from round to round.
+\TODO{仿真：按估计时间选目标时，相对 $\bx_r(t)$ 的误差与间隔抖动无关（notes Q39），数值在 Experiments 中报告}
+
+\subsection{Design procedure}\label{sec:procedure}
+
+\TODO{设计步骤（Algorithm 框）与参数选择：Taylor 预瞄阶数 L、$\tau = mh$（$m \ge 2$，满足\cref{rem:chain}的 τ > 1.526h）、权重（\cref{rem:chain}的 Hurwitz 条件）、前向 Euler 更新；自行车另见\cref{rem:bicycle-speed}}
+
+\subsection{Example: swing-up and stabilization of a double inverted pendulum on a cart}
+\label{sec:example-dipc}
+
+\TODO{动力学模型（输入为作用在小车上的力）；两级层级，Taylor 预瞄阶数为 2；单一控制律完成从下垂位置起摆到收敛于倒立平衡点；控制律推导}
+
+\subsection{Example: trajectory tracking with a kinematic bicycle model}
+\label{sec:example-bicycle}
+
+% Session 18: Taylor look-ahead, as in kinematics_flow_controller.hpp (refactored 2026-10-26);
+% look-ahead, columns and rates checked against the code (notes/discussion.md, Q40).
+
+\paragraph{Model.}
+We describe the vehicle by the kinematic bicycle model~\citep{rajamani2012vehicle,kong2015kinematic},
+with the reference point on the longitudinal axis at the distance $l_r$ ahead of the rear axle and
+$l_f$ behind the front axle, for instance at the center of gravity; $l = l_f + l_r$ is the
+wheelbase.
+The state $\bx = (x,y,\psi,\delta,u)$ collects the position of the reference point in the world
+frame, the heading, the steering angle of the front wheel, and the longitudinal velocity; the input
+$\bu = (a,\omega)$ collects the longitudinal acceleration and the steering rate, which are bounded,
+$\mathcal{U} = [a_{\min},a_{\max}]\times[\omega_{\min},\omega_{\max}]$; in this subsection, $\omega$
+is the steering rate, not the speed of $Q$ in \cref{sec:properties}.
+If neither wheel slips sideways, the yaw rate and the lateral velocity of the reference point follow
+from $u$ and $\delta$ as $r = u\tan\delta/l$ and $v = l_r r$, and
+\begin{equation}\label{eq:bicycle}
+    \dot x = u\cos\psi - v\sin\psi, \quad
+    \dot y = u\sin\psi + v\cos\psi, \quad
+    \dot\psi = r, \quad
+    \dot\delta = \omega, \quad
+    \dot u = a,
+\end{equation}
+with $\abs{\delta} < \pi/2$.
+The model is accurate as long as the lateral acceleration stays moderate, so that the tires barely
+slip~\citep{kong2015kinematic,polack2017kinematic}.
+Because the steering angle and the speed are states, the inputs are their rates, and the bounds of
+$\mathcal{U}$ are the rate limits of the actuators.
+The state falls into three levels, $\bx_1 = (x,y)$, $\bx_2 = \psi$ and $\bx_3 = (\delta,u)$: the
+input drives the third level, the third level drives the heading, and the position is driven by the
+heading and, through $u$ and $v$, directly by the third level.
+The heading is a continuous function of time, for the plant as for the samples, so that heading
+differences need no wrapping.
+
+\paragraph{Look-ahead and cost.}
+The Taylor look-ahead \eqref{eq:taylor} of \eqref{eq:bicycle} has order three.
+Let $\mathbf{p} = (x,y)$, let $R(\psi)$ be the rotation by the heading and $J = R(\pi/2)$, and write
+$\mathbf{b} = (u,v)$ for the velocity of the reference point in the body frame,
+$\dot r = (a\tan\delta + u\,\omega\sec^2\delta)/l$ for the yaw acceleration, and
+$\dot{\mathbf{b}} = (a, l_r\dot r)$ for the rate of $\mathbf{b}$.
+Then
+\begin{equation}\label{eq:bicycle-lookahead}
+\begin{aligned}
+    \delta^+ &= \delta + \tau\omega, \qquad u^+ = u + \tau a, \qquad
+    \psi^+ = \psi + \tau r + \tfrac12\tau^2\dot r, \\
+    \mathbf{p}^+ &= \mathbf{p} + R(\psi)\Bigl(\tau\mathbf{b}
+    + \tfrac12\tau^2\bigl(\dot{\mathbf{b}} + rJ\mathbf{b}\bigr)
+    + \tfrac16\tau^3\bigl(2rJ\dot{\mathbf{b}} + \dot r J\mathbf{b} - r^2\mathbf{b}\bigr)\Bigr).
+\end{aligned}
+\end{equation}
+The terms up to second order are the derivatives of the flow, the velocity of the reference point
+turning with the heading; at third order, the second derivative $\ddot r$ of the yaw rate, which is
+quadratic in $(a,\omega)$, is omitted in the position and in the heading.
+With the steering angle held, $\omega = 0$, the look-ahead is therefore exact through $\tau^3$, and
+along a straight line under constant acceleration it is exact.
+Every component of \eqref{eq:bicycle-lookahead} is affine in $(a,\omega)$.
+
+The target $\bxref = (x_{\mathrm{ref}},y_{\mathrm{ref}},\psi_{\mathrm{ref}},\delta_{\mathrm{ref}},
+u_{\mathrm{ref}})$ is the $m$th next sample \eqref{eq:xref}, with $\tau = mh$, and the residuals are
+weighted as
+\begin{equation}\label{eq:bicycle-cost}
+    F = w_p\,\frac{(x^+ - x_{\mathrm{ref}})^2 + (y^+ - y_{\mathrm{ref}})^2}{l^2}
+    + w_\psi\,(\psi^+ - \psi_{\mathrm{ref}})^2 + w_\delta\,(\delta^+ - \delta_{\mathrm{ref}})^2
+    + w_u\,\frac{\tau^2(u^+ - u_{\mathrm{ref}})^2}{l^2},
+\end{equation}
+that is, $\bar\Gamma = \diag(l^{-1},l^{-1},1,1,\tau/l)$ in \eqref{eq:cost}: positions are measured
+in wheelbases, and the speed by the distance it covers in the preview time, again in wheelbases.
+Equal weights on $x$ and $y$ keep $F$ invariant under rotations of the world frame.
+Since $\partial_a\bv$ and $\partial_\omega\bv$ are the unit vectors of the components $u$ and
+$\delta$, the coefficients \eqref{eq:D} are $d_a = l^2/(2\tau^5)$ and $d_\omega = 1/(2\tau^3)$.
+
+Because the look-ahead is affine in the input,
+$\nabla_{\bu}F = 2(\partial_{\bu}\hat\Phi_\tau)^\T W(\hat\Phi_\tau - \bxref)$ with
+$W = \diag(w_p/l^2, w_p/l^2, w_\psi, w_\delta, w_u\tau^2/l^2)$, and the columns of
+$\partial_{\bu}\hat\Phi_\tau$, with the components ordered as $(x,y,\psi,\delta,u)$, are
+\begin{equation}\label{eq:bicycle-columns}
+\begin{aligned}
+    \partial_a\hat\Phi_\tau &= \tau^2\Bigl(
+        \frac12 R(\psi)\begin{bmatrix} 1 - \tau v\tan\delta/l \\ (l_r + \tau u)\tan\delta/l \end{bmatrix},\
+        \frac{\tan\delta}{2l},\ 0,\ \frac{1}{\tau}\Bigr), \\
+    \partial_\omega\hat\Phi_\tau &= \tau^2\Bigl(
+        \frac{u\sec^2\delta}{l}\,R(\psi)\begin{bmatrix} -\tau v/2 \\ l_r/2 + \tau u/6 \end{bmatrix},\
+        \frac{u\sec^2\delta}{2l},\ \frac{1}{\tau},\ 0\Bigr).
+\end{aligned}
+\end{equation}
+The \method{} law \eqref{eq:hfc} becomes
+\begin{equation}\label{eq:bicycle-law}
+    \dot a = -\frac{l^2}{\tau^5}\,(\partial_a\hat\Phi_\tau)^\T W\bigl(\hat\Phi_\tau - \bxref\bigr),
+    \qquad
+    \dot\omega = -\frac{1}{\tau^3}\,(\partial_\omega\hat\Phi_\tau)^\T W\bigl(\hat\Phi_\tau - \bxref\bigr),
+\end{equation}
+which the controller integrates by the update \eqref{eq:update}.
+A round of the controller thus takes a fixed number of arithmetic operations and a few
+trigonometric functions; it involves neither a matrix inversion nor an iteration.
+
+\paragraph{How the errors reach the input.}
+With the forward Euler look-ahead, only the residuals of $\delta$ and $u$ would enter
+$\nabla_{\bu}F$, and the controller would follow the steering angle and the speed of the samples
+without any feedback from heading and position (\cref{prop:sg}).
+By \eqref{eq:bicycle-columns}, the Taylor look-ahead lets the heading error enter at order $\tau^2$,
+through the dependence of the yaw rate on $\delta$ and $u$, and the position error as well, through
+the dependence of the velocity of the reference point on $u$ and, sideways, on $\delta$.
+The lateral entry of $\partial_\omega\hat\Phi_\tau$ in the body frame,
+$\tau^2 u\sec^2\delta\,(l_r/2 + \tau u/6)/l$, combines two effects: the lateral velocity of the
+reference point, which builds up over the preview time with the lever arm $l_r/2$, and the rotation of
+the velocity by the heading change, with the lever arm $\tau u/6$.
+The second effect, of third order, dominates whenever $\tau u > 3l_r$, and it is the only one when the
+reference point is at the rear axle, $l_r = 0$; a look-ahead truncated at second order would leave
+the lateral position of such a vehicle without any influence on the steering rate.
+
+\paragraph{Straight references.}
+About a straight reference traversed at constant speed, the longitudinal motion reduces to the
+integrator chain of \cref{prop:chain}, and the lateral motion to a loop of fourth order.
+
+\begin{proposition}[Bicycle on a straight reference]\label{prop:bicycle}
+Linearize the closed loop \eqref{eq:bicycle}, \eqref{eq:bicycle-law} about a straight reference
+traversed at the constant speed $U > 0$, whose target at the time $t$ is its state at $t + \tau$, and
+let $\kappa = U\tau/l$ be the preview distance in wheelbases.
+\begin{enumerate}
+    \item The linearization splits into a longitudinal part, in the along-track position, $u$ and $a$,
+    and a lateral part, in the cross-track position, $\psi$, $\delta$ and $\omega$.
+    \item The longitudinal part is the loop of \cref{prop:chain} with $L = 2$, $\ell_0 = l$,
+    $w_1 = w_p$ and $w_2 = w_u$.
+    \item The characteristic polynomial of the lateral part is $\tau^{-4}P(\tau s)$ with
+    \begin{equation}\label{eq:bicycle-lateral}
+        P(\sigma) = \sigma^4 + a_3\sigma^3 + a_2\sigma^2 + a_1\sigma + a_0,
+    \end{equation}
+    where, with $\beta = \kappa\,(\kappa/6 + l_r/(2l))$,
+    \[
+    \begin{aligned}
+        a_0 &= w_p\beta\kappa^2, &
+        a_1 &= w_p\beta\kappa\,(\kappa + l_r/l) + \tfrac12 w_\psi\kappa^2, \\
+        a_2 &= w_p\beta\kappa\,(\kappa/2 + l_r/l) + \tfrac12 w_\psi\kappa^2 + w_\delta, &
+        a_3 &= w_p\beta^2 + \tfrac14 w_\psi\kappa^2 + w_\delta .
+    \end{aligned}
+    \]
+    \item For unit weights, both parts are exponentially stable for every $\kappa > 0$ and every
+    $l_r\in[0,l]$, so that the reference is locally exponentially stable.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+We place the reference on the $x$-axis, where $\psi = \delta = v = 0$, $u = U$ and $a = \omega = 0$,
+and denote the deviations from it by the same letters.
+The reference input lies in the interior of $\mathcal{U}$, so the clamping is inactive near it.
+
+(a) The lateral deviations enter the longitudinal components of \eqref{eq:bicycle} and
+\eqref{eq:bicycle-lookahead} only in products of deviations, and vice versa.
+In \eqref{eq:bicycle-columns}, the entries that couple the two parts carry the factor $\tan\delta$
+or $v$, so they are of first order, and their products with the residuals drop out of the
+linearization of \eqref{eq:bicycle-law}.
+
+(b) The longitudinal part reads $\dot x = u$, $\dot u = a$, $x^+ = x + \tau u + \frac12\tau^2 a$ and
+$u^+ = u + \tau a$, with the cost $w_p(x^+ - x_{\mathrm{ref}})^2/l^2 +
+w_u\tau^2(u^+ - u_{\mathrm{ref}})^2/l^2$ and $d_a = l^2/(2\tau^5)$.
+In the deviations from the reference, whose target is exactly its own look-ahead, this is the loop
+of \cref{prop:chain}.
+
+(c) Let $\eta = y/l$, $\nu = \tau\omega$, and $(\cdot)' = \dd(\cdot)/\dd\sigma$ with $\sigma = t/\tau$.
+To first order, $\dot r = U\omega/l$ and $v = l_r U\delta/l$, so the lateral part reads
+$\eta' = \kappa(\psi + (l_r/l)\delta)$, $\psi' = \kappa\delta$ and $\delta' = \nu$, and its look-ahead
+\[
+    \frac{y^+}{l} = \eta + \kappa\psi + \kappa\Bigl(\frac{\kappa}{2} + \frac{l_r}{l}\Bigr)\delta
+    + \beta\nu,
+    \qquad \psi^+ = \psi + \kappa\delta + \tfrac12\kappa\nu, \qquad \delta^+ = \delta + \nu .
+\]
+Since $\partial_\omega = \tau\partial_\nu$, the control equation is
+$\nu' = \tau^2\dot\omega = -\frac12\partial_\nu F
+= -w_p\beta\,y^+/l - \frac12 w_\psi\kappa\psi^+ - w_\delta\delta^+$.
+In the Laplace domain, $\nu = s\delta$, $\psi = \kappa\delta/s$ and
+$\eta = \kappa(\kappa + (l_r/l)s)\delta/s^2$; substituting these into the control equation and
+multiplying by $s^2$ gives $P(s)\delta = 0$.
+The scaling of time multiplies the eigenvalues by $1/\tau$.
+
+(d) For unit weights, the longitudinal part satisfies
+$\bigl(\frac{w_1}{4} + w_2\bigr)\bigl(\frac{w_1}{2} + w_2\bigr) = \frac{15}{8} > \frac{w_1}{2}$
+(\cref{rem:chain}).
+For the lateral part, the coefficients $a_0,\dots,a_3$ are positive, and the Hurwitz determinants
+$a_3a_2 - a_1$ and $a_1(a_3a_2 - a_1) - a_3^2a_0$ are polynomials in $\kappa$ and $l_r/l$;
+quantifier elimination over the reals by cylindrical algebraic decomposition~\citep{collins1975quantifier}
+shows that both are positive for all $\kappa > 0$ and $l_r/l\in[0,1]$.
+Hence $P$ is Hurwitz, and Lyapunov's indirect method gives the local exponential stability.
+\end{proof}
+
+\begin{remark}[Speed range of the sampled-data loop]\label{rem:bicycle-speed}
+With $\tau = mh$ and $m \ge 2$, the longitudinal part meets the condition $\tau > 1.526\,h$ of
+\cref{rem:chain}.
+The lateral part bounds the preview distance instead.
+For unit weights and $l_r = l/2$, the sampled-data loop \eqref{eq:update}, linearized about a straight
+reference, has spectral radius below one for $\kappa < 0.92$, $1.21$ and $3.37$ with $m = 2$, $3$ and
+$4$; for $l_r = 0$, the bounds are $1.15$, $1.49$ and $3.94$.
+These bounds depend on $\kappa$, $l_r/l$ and $m$ only; the loop can regain stability beyond them, but
+we do not rely on it.
+In practice, the preview distance $U\tau$ should therefore stay below about one wheelbase; at higher
+speeds, the update interval $h$ has to be shortened or the weight $w_p$ lowered.
+\end{remark}
+
+\paragraph{Tracking error.}
+By \cref{lem:defect} with $\theta = \tau$, the defect is
+$\frac12\tau^2\partial_{\bu}\bv\,\dot\bu_r + O(\tau^3)$: it is of second order only in the steering
+angle and the speed, $\frac12\tau^2\dot\omega_r$ and $\frac12\tau^2\dot a_r$, and of third order
+otherwise.
+On references with a held steering angle and a constant acceleration, which include straight lines and
+circles traversed at constant speed, the look-ahead is exact through $\tau^3$ and the defect is of
+fourth order, so that the steady offsets essentially vanish, whereas the staged look-ahead of
+\cref{rem:staged} leaves the vehicle about $\frac12\tau^2$ times the centripetal acceleration outside
+a curve.
+With $\tau = mh$, the error \eqref{eq:error} is then dominated by the jitter of the sample intervals,
+which enters at first order (\cref{rem:target}).
+\TODO{稳态偏差的仿真数值（圆周、匀加速直线）在 Experiments 中报告}
+
+\paragraph{Conditions on the reference.}
+The samples carry all five components of the state; the controller uses no input of the reference.
+For the analysis, the samples are taken from a solution of \eqref{eq:bicycle} with continuously
+differentiable inputs in the interior of $\mathcal{U}$, $\abs{\delta_r} < \pi/2$, and a speed bounded
+away from zero.
+The last condition is essential: as $U \to 0$, $\kappa \to 0$ and the lateral feedback in
+\eqref{eq:bicycle-lateral} vanishes with $a_0$ and $a_1$.
+This is not a shortcoming of the particular law: by Brockett's necessary
+condition~\citep{brockett1983asymptotic}, no continuous time-invariant feedback, static or dynamic,
+asymptotically stabilizes a parked pose of the vehicle, since no state near rest and no input
+produce a sideways velocity.
+
+\subsection{Example: trajectory tracking of a quadrotor unmanned aerial vehicle}
+\label{sec:example-quadrotor}
+
+\TODO{模型（平移 + 姿态，姿态在 SO(3) 上完整描述）；四级层级，Taylor 预瞄阶数为 4，姿态部分用 SO(3) 上的展开（Magnus 型），输入在 u = 0 处线性化；参考轨迹的条件；控制律推导}

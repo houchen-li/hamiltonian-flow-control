@@ -1,0 +1,300 @@
+\section{Introduction}\label{sec:introduction}
+
+% Paragraph plan: notes/outline.md, Section 1. The comments mark the role of each paragraph.
+
+% (1) Background: industrial practice and the trade-off between cost and model use.
+Feedback control has developed rapidly over the past decades, yet the algorithms deployed at
+scale in industrial production remain few.
+Proportional--integral--derivative (PID) control, the linear quadratic regulator (LQR), and
+model predictive control (MPC) are the most representative of them: in a survey conducted by
+the IFAC Industry Committee, PID control received the highest rating for current industrial
+impact and MPC the highest rating for expected future impact~\citep{samad2020industry}.
+These algorithms occupy different positions in a trade-off between computational cost and
+the ability to exploit a model of the plant, that is, to anticipate its motion and to respect
+its constraints.
+Many emerging applications, such as agile robots, automated vehicles, and aerial vehicles,
+demand both at once: their dynamics are nonlinear and often underactuated, and their
+controllers must run at high rates on embedded processors with limited computing resources.
+
+% (2) PID: model-free and cheap, but reactive and sensitive to its error history.
+PID control is the representative of model-free feedback.
+Its control signal combines the present error, the accumulated past error, and the rate of
+change of the error, its tuning requires no model of the plant, and it remains the workhorse
+of industrial feedback~\citep{astrom2001future}.
+Its computation amounts to a few arithmetic operations per sample, so that it runs comfortably
+on microcontrollers.
+These advantages come with limitations.
+Because the integral term stores the entire error history, past errors keep acting on the
+plant long after they have occurred: transient disturbances and measurement noise that enter
+the integrator are never forgotten, and while the actuator saturates, the integrator keeps
+accumulating error that is released only after the actuator desaturates.
+The result can be large overshoot and sustained oscillation, a phenomenon known as integrator
+windup~\citep{astrom1989windup,astrom2008feedback}.
+The derivative term, in turn, amplifies high-frequency measurement noise and must be
+filtered~\citep{astrom2008feedback}.
+Moreover, PID control is essentially reactive.
+Its only anticipation is the linear extrapolation of the error implied by the derivative
+term~\citep{astrom2008feedback}, so it can anticipate neither the nonlinear motion of the plant
+nor upcoming changes of the reference, and its tracking performance deteriorates when the
+reference varies rapidly.
+Finally, although PID control appears conceptually simple, tuning it to meet several
+conflicting objectives is hard in practice~\citep{ang2005pid}, and the difficulty is
+compounded in strongly coupled multivariable and underactuated systems, where the loops are
+designed channel by channel.
+
+% (3) LQR: model-based and optimal, but Riccati equations, no constraints, local only.
+The LQR is the prototype of model-based optimal
+feedback~\citep{kalman1960contributions,anderson1990optimal}.
+For a linear model and a quadratic cost, the optimal control is a linear state feedback whose
+gain follows from a Riccati equation.
+For linear time-invariant regulation, this equation is solved once, offline.
+For nonlinear plants that operate over wide ranges or track time-varying references, however,
+the model must be linearized along the operating trajectory and the Riccati equation solved
+again online, or the gains must be scheduled~\citep{rugh2000research}, which raises the
+computational burden markedly above that of PID control.
+Standard LQR cannot enforce input or state constraints: saturating its output forfeits its
+optimality and stability guarantees, and incorporating the constraints turns the control law
+into a piecewise affine function of the state that must be computed by multiparametric
+programming~\citep{bemporad2002explicit}.
+LQR has further limitations.
+When it is applied to a nonlinear plant through linearization, stability is guaranteed only in
+a neighborhood of the operating point, so that large-amplitude maneuvers such as the swing-up
+of a pendulum lie outside its scope.
+The weighting matrices of the cost are only indirectly related to time-domain specifications
+and are usually tuned by trial and error.
+And the celebrated robustness margins of LQR~\citep{safonov1977gain} hold only under full-state
+feedback: no margins are guaranteed once a state observer is inserted into the
+loop~\citep{doyle1978guaranteed}.
+
+% (4) MPC: constraints and nonlinear models, but an optimization problem per sample.
+MPC overcomes several of these limitations by solving, at every sampling instant, a
+finite-horizon optimal control problem for the current state and applying the first element of
+the optimal input sequence~\citep{mayne2000constrained}.
+It handles multivariable and nonlinear models, incorporates input and state constraints
+explicitly, and has become the standard advanced control technology in the process
+industries~\citep{qin2003survey}.
+Its price is computational: a quadratic program, or a nonlinear program for nonlinear models,
+must be solved within each sampling period.
+Efficient solvers exploit the sparse, stage-wise structure of these problems through structured
+or sparse matrix factorizations~\citep{rao1998application,wang2010fast,stellato2020osqp}, and
+real-time schemes either perform only a single Newton-type iteration per
+sample~\citep{diehl2005realtime,verschueren2022acados} or, as continuation methods do, update
+the input sequence by integrating a differential equation that drives the residual of the
+optimality conditions to zero~\citep{ohtsuka2004continuation}; nevertheless, the computational
+and memory demands remain far above those of LQR.
+Explicit MPC moves the optimization offline, but the number of regions of the resulting
+piecewise affine law grows rapidly with the size of the problem~\citep{bemporad2002explicit}.
+MPC therefore remains difficult to deploy on low-cost embedded platforms with fast sampling.
+In addition, its closed-loop stability rests on suitably designed terminal costs and
+constraints~\citep{mayne2000constrained}.
+
+% (5) iLQR: nonlinear extension of LQR, at a higher computational cost.
+The iterative linear quadratic regulator (iLQR)~\citep{li2004iterative} extends LQR to
+nonlinear dynamics.
+It is a variant of differential dynamic programming~\citep{mayne1966second} that neglects the
+second-order derivatives of the dynamics: each iteration linearizes the dynamics around the
+current trajectory, solves the resulting time-varying LQR problem by a backward Riccati-type
+recursion, and updates the trajectory by a forward rollout.
+Applied in a receding-horizon fashion, iLQR-type methods have synthesized complex behaviors
+online, although for a humanoid robot the computation still ran about seven times slower than
+real time on a standard PC~\citep{tassa2012synthesis}; constrained variants have been adopted
+for motion planning in autonomous driving~\citep{chen2017constrained,chen2019autonomous}.
+Every control update requires repeated forward--backward passes over the horizon, so that the
+computational cost exceeds that of LQR; constraints are not handled natively and call for
+dedicated extensions~\citep{tassa2014control,chen2019autonomous}; and, being a local method,
+iLQR may converge to poor local solutions depending on its initialization.
+
+% (6) Structured nonlinear designs: rigorous but system-specific.
+Beyond these industrial workhorses, nonlinear control theory offers constructive designs with
+rigorous guarantees, including feedback linearization~\citep{isidori1995nonlinear},
+backstepping~\citep{krstic1995nonlinear}, sliding-mode control~\citep{utkin1977variable}, and
+passivity-based control~\citep{ortega2002interconnection}; see \citet{khalil2002nonlinear} for
+an overview.
+These designs exploit structural properties of the model, for instance strict-feedback forms in
+backstepping or the solvability of matching partial differential equations in the energy
+shaping of underactuated mechanical systems~\citep{ortega2002stabilization}, and they are
+largely system-specific.
+Correspondingly, industrial surveys rate the current impact of nonlinear control far below that
+of PID control and MPC~\citep{samad2020industry}.
+
+% (7) Research gap.
+The picture that emerges is one of two extremes.
+PID control requires negligible computation but neither uses a model nor anticipates the motion
+of the plant, whereas LQR, iLQR, and MPC exploit a model at a computational cost that grows from
+solving Riccati equations to solving an optimization problem at every sampling instant.
+What is missing is a controller that exploits a nonlinear model to anticipate the motion of the
+plant, acts on every state component, including the unactuated states of underactuated systems,
+keeps the per-step computation low enough for low-cost embedded hardware, and comes with
+convergence guarantees.
+\TODO{研究空白；“单步计算量低”需在实验中以实测耗时支撑（笔记 R11）}
+
+% (8) Speed-gradient method: the starting point of HFC.
+The speed-gradient (SG) method introduced by Fradkov~\citep{fradkov1979speed,fradkov1999nonlinear}
+points in this direction.
+Consider a plant $\dot\bx = \mathbf{f}(\bx,\bu,t)$ and a goal function $Q(\bx,t) \ge 0$ whose
+vanishing encodes the control objective.
+The SG method computes the rate of change, or \emph{speed}, of $Q$ along the trajectories of the
+plant, $\omega(\bx,\bu,t) = \partial Q(\bx,t)/\partial t + \nabla_{\bx} Q(\bx,t)^\T
+\mathbf{f}(\bx,\bu,t)$, and changes the input against the gradient of this speed with respect to
+the input: in the differential form $\dot\bu = -K \nabla_{\bu}\omega(\bx,\bu,t)$ or, for plants
+affine in the input, in the finite form $\bu = -K \nabla_{\bu}\omega(\bx,\bu,t)$, where $K$ is a
+positive definite gain matrix.
+Under a convexity condition on $\omega$ with respect to $\bu$ and an attainability condition, which
+requires an input that renders $\omega$ sufficiently negative, the goal $Q \to 0$ is achieved,
+with the goal function serving as a Lyapunov function~\citep{fradkov1999nonlinear}.
+The method is constructive and model-based; its computation per step reduces to the evaluation
+of a gradient, with neither a Riccati equation nor an online optimization; and it applies to
+nonlinear, non-affine, and time-varying systems.
+It has accordingly served as a unifying framework for adaptive control~\citep{fradkov1979speed},
+energy-based control of oscillations~\citep{fradkov1996swinging}, stabilization of invariant
+sets~\citep{shiriaev2000stabilization}, and control of chaos~\citep{fradkov2007cybernetical}.
+Its limitations stem from its reliance on the instantaneous speed of the goal function.
+First, $\nabla_{\bu}\omega$ receives no contribution from the state components whose rates do not
+depend on the input.
+In mechanical and kinematic models, the input acts directly only on the highest-order states,
+such as velocities, so that errors in the low-order states, such as positions, drop out of the
+control law.
+The designer must then construct an auxiliary goal function, typically energy-like, whose speed
+depends explicitly on the input; since the attainability condition essentially requires this
+function to be a control Lyapunov function, the construction is difficult for general
+underactuated systems.
+Second, the resulting control is myopic: it decreases $Q$ at the current instant without
+anticipating the future motion of the plant.
+Third, achieving $Q \to 0$ does not in general imply convergence of the full state.
+Energy-based swing-up laws, including those obtained by the SG
+method~\citep{fradkov1996swinging}, regulate the energy of a pendulum to that of its upright
+equilibrium and thereby steer the state toward the corresponding homoclinic orbit rather than to
+the equilibrium itself, so that a separate local stabilizer must be switched in near the upright
+position~\citep{astrom2000swinging,shiriaev2000global}.
+
+% (9) Flow-based cost of Lan and Cvitanovic: the second ingredient of HFC.
+A different line of work, originating in the computation of unstable periodic orbits, shows how a
+cost can be built from the flow itself.
+\citet{lan2004variational} proposed a variational method in which a trial loop in phase space is
+deformed toward a periodic orbit.
+Their cost measures, along the loop, the mismatch $\lambda\bv - \tilde{\bv}$ between the velocity
+field $\bv$ of the flow, rescaled by a local time-scaling factor $\lambda$, and the tangent
+$\tilde{\bv}$ of the loop; in discretized form, it compares the image of each loop point under
+the flow over one time step with the next loop point.
+The loop evolves under a ``Newton descent'' equation, an infinitesimal-step version of the damped
+Newton--Raphson iteration, along which this mismatch decays exponentially in a fictitious time,
+so that the cost decreases monotonically.
+For systems with higher time derivatives, the method matches the highest derivatives instead.
+The idea of measuring the cost through the phase-space flow, rather than through a hand-crafted
+function of the state, is the one we adopt in this paper.
+
+% (10) Controllers whose input evolves as a flow: closest related work.
+Letting the control input evolve as the solution of a differential equation that drives a
+residual to zero is not new in control either.
+Besides the continuation methods for receding-horizon control mentioned
+above~\citep{ohtsuka2004continuation}, Wardi and co-workers have developed an output-tracking
+controller based on a fluid-flow version of the Newton--Raphson method: an integrator with variable
+gain that drives to zero the difference between a predicted future output and the reference
+signal~\citep{wardi2017performance,wardi2024tracking}.
+Implementable by simple algorithms, it has been applied to autonomous
+vehicles~\citep{shivam2019tracking}, to aggressive quadrotor flight, where it outperformed the native
+tracking controller of the PX4 autopilot~\citep{morales2024newton}, and to computationally
+constrained aerial vehicles, where it matched or exceeded nonlinear MPC at a substantially lower
+computation time~\citep{morales2026lightweight}; stability conditions are available for linear
+systems and for a class of differentially flat systems~\citep{wardi2024tracking,niu2025stability}.
+\method{} shares with this controller the idea of steering a predicted state toward the reference by
+a flow of the input, but it differs in two respects.
+First, the Newton--Raphson flow solves a square system of equations, with as many tracked outputs as
+inputs, and its update requires the inverse of the Jacobian of the predicted output with respect to
+the input.
+\method{} instead weighs the predicted error of every state component and drives the input along a
+gradient scaled by diagonal coefficients, so that no matrix is inverted and the states outside the
+tracked outputs, such as the pendulum angles of an underactuated system, enter the control law
+directly.
+Second, in its basic form the Newton--Raphson flow predicts the output by integrating the plant over
+the preview horizon with the input held constant~\citep{wardi2024tracking}, whereas \method{}
+evaluates a Taylor polynomial of the flow in closed form, whose higher-order terms already make every
+state component depend on the input.
+
+% (11) The proposed approach.
+In this paper, we propose \methodlong{} (\method{}), which builds on the SG method and on the
+flow-based cost of \citet{lan2004variational}.
+The reference is a sequence of state samples without time stamps, whose evolution times are close
+to the update interval $h$ of the controller but not exactly uniform; at every round, the controller
+takes the $m$th next sample as target, which requires no projection onto the reference, and aims to
+reach it after the preview time $\tau = mh$.
+Writing $\bv_\tau$ for the mean velocity of a look-ahead of the plant over the preview time, the cost
+\[
+    F(\bx,\bu,t) = \norm[\big]{\Gamma\bigl(\tau\bv_\tau(\bx,\bu) - (\bxref - \bx)\bigr)}^2
+\]
+compares the flow of the plant with the mean velocity that would carry the current state to the
+target sample, the matrix $\Gamma$ rendering the cost dimensionless.
+This is the counterpart of the mismatch $\lambda\bv - \tilde{\bv}$ of \citet{lan2004variational}, the
+secant toward the target sample playing the role of the loop tangent and the preview time that of
+the time-scaling factor: the controller chases a flow rather than a geometric position.
+The control input evolves along the negative gradient of $F$ with respect to $\bu$, scaled by
+dimension-balancing coefficients, and the controller follows this gradient flow by one explicit
+update per round, without any online optimization.
+To first order in $\tau$, this control law coincides, up to the gain matrix, with the SG law for the
+quadratic goal function $Q = \frac{1}{2}\norm{\Gamma(\bx - \bxref)}^2$ (\cref{prop:sg}), and a
+look-ahead of first order would therefore inherit the first limitation of SG: the low-order states
+would not contribute to the gradient.
+\method{} removes this limitation by taking as look-ahead the Taylor polynomial of the flow of the
+plant, with the input held over the preview time, up to the order at which the input reaches every
+state component: the low-order states are predicted through the time derivatives of the high-order
+ones, much as \citet{lan2004variational} match the highest derivatives of systems of higher order,
+so that every state component contributes to the control update.
+As a result, and unlike SG, \method{} needs no hand-crafted energy-like goal function: a quadratic
+cost on the state errors suffices.
+Expanding the square, $F/2 = Q + \tau\mathcal{H}$, where $\mathcal{H}$ has the form of the Hamiltonian
+of Pontryagin's principle~\citep{pontryagin1962mathematical}, with the gradient of $Q$ in the role of
+the costate, the mean velocity of the look-ahead in that of the velocity, and the kinetic energy of
+this velocity as running cost (\cref{rem:hamiltonian}).
+The input therefore descends a control Hamiltonian continuously, rather than minimizing it along the
+solution of an adjoint equation, which motivates the name of the method.
+We call $F$ the flow cost; as the sum of the potential $Q$ and $\tau$ times this Hamiltonian, it is an
+energy-like function, and \method{} is an energy-descent control law.
+The Hamiltonian is not meant in the sense of Hamiltonian mechanics: the closed loop is dissipative,
+and no symplectic structure is claimed.
+The controller uses the target samples only: neither their timing, nor values between them, nor
+the input that generates them is required.
+
+% (12) Contributions.
+The main contributions of this paper are as follows.
+\begin{itemize}
+    \item We propose \method{}, which drives the control input along the gradient of a cost that
+    compares the flows of the plant and of the reference over a preview time, in the spirit of the
+    variational method of \citet{lan2004variational}; we show that this cost is the weighted state
+    error plus the preview time times a control Hamiltonian of Pontryagin type, and that the control
+    law contains the SG law as its first-order approximation in the preview time.
+    \item We introduce a Taylor look-ahead, through which the low-order states, which the input
+    reaches only through the higher-order ones, contribute to the control update, so that no
+    hand-crafted energy-like goal function is needed; the look-ahead is affine in the input, so
+    that the cost is quadratic in it.
+    \item We show that on integrator chains the closed-loop eigenvalues of \method{} are $1/\tau$
+    times the roots of a polynomial fixed by the weights, which yields exact conditions for
+    stability, met by equal weights up to chains of four levels, and for the update interval; we
+    show that the look-ahead toward a target sample causes a time delay equal to the mismatch
+    between the preview time and the time to the sample, with no offset up to terms of third order
+    in the preview time or of second order in the rate of the reference input, that taking the $m$th
+    next sample with $\tau = mh$ removes the delay without any projection onto the reference, and we
+    bound the resulting tracking error.
+    \TODO{一般非线性系统的收敛性定理（类型待定，见 notes/convergence.md）}
+    \item We derive \method{} laws for three benchmark problems: the swing-up and stabilization of a
+    double inverted pendulum on a cart~\citep{graichen2007swingup} by a single control law
+    without switching, trajectory tracking for a kinematic bicycle model, for which we prove local
+    exponential stability of straight references at every speed in continuous time and quantify the
+    speed range of the sampled-data implementation, and trajectory tracking for a
+    quadrotor whose attitude evolves on $\mathrm{SO}(3)$~\citep{lee2010geometric}.
+    \item We validate \method{} in simulations and physical experiments on all three platforms.
+    \TODO{对比基线与评价指标待定；建议包括 SG 与 Newton–Raphson 流方法（笔记 R6）}
+\end{itemize}
+
+% (13) Organization. Draft -- revisit once Sections 2--4 are settled.
+The remainder of this paper is organized as follows.
+\Cref{sec:formulation} recalls the required geometric preliminaries, introduces the flow cost and
+its Taylor look-ahead, defines the control law and its sampled-data implementation, relates the
+cost to a control Hamiltonian and the law to the SG method, analyzes the convergence and the
+tracking error caused by the look-ahead, and treats non-uniform sample intervals; it then derives
+the control laws for the three benchmark problems.
+\Cref{sec:experiments} reports simulation and experimental results for these systems, and
+\cref{sec:conclusion} concludes the paper and outlines possible extensions.
+
+% (14) Notation.
+\paragraph{Notation.}
+\TODO{符号说明：待 Formulation 定稿后补充}
